@@ -2,6 +2,10 @@ name: Deploy Inventory to Azure App Service
 
 # Single App Service deployment — serves both the Express API and the React frontend.
 # Build steps: install server deps → build client → build server → package → deploy.
+#
+# NOTE: prisma db push and demo-seed are NOT run here — execute manually from local:
+#   $env:DATABASE_URL="..."; npx prisma db push
+#   $env:DATABASE_URL="..."; npx tsx prisma/demo-seed.ts
 
 on:
   push:
@@ -75,24 +79,6 @@ jobs:
           cd ..
           ls -lh deploy.zip
 
-      - name: Run prisma db push
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npx prisma db push --skip-generate
-
-      - name: Run gated demo seed
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
-        run: npx tsx prisma/demo-seed.ts
-
-      - name: Set Azure startup command
-        run: |
-          az webapp config set \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.AZURE_APP_NAME }} \
-            --startup-file "node dist/index.js"
-
       - name: Deploy to Azure App Service via az CLI
         run: |
           az webapp deploy \
@@ -101,3 +87,10 @@ jobs:
             --src-path ./deploy.zip \
             --type zip \
             --async false
+
+      - name: Set Azure startup command
+        run: |
+          az webapp config set \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_APP_NAME }} \
+            --startup-file "node dist/index.js"
