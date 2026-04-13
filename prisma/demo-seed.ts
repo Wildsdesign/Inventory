@@ -14,10 +14,18 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
+  const itemCount = await prisma.item.count();
+  if (itemCount > 0) {
+    console.log('[demo-seed] Items already exist — skipping.');
+    return;
+  }
+
+  // If items are missing but a facility exists, a previous seed run failed mid-way.
+  // Wipe partial data so we can reseed cleanly.
   const facilityCount = await prisma.facility.count();
   if (facilityCount > 0) {
-    console.log('[demo-seed] Facility already exists — skipping.');
-    return;
+    console.log('[demo-seed] Partial seed detected — clearing and reseeding…');
+    await prisma.facility.deleteMany({});
   }
 
   console.log('[demo-seed] Seeding demo data…');

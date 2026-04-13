@@ -135,7 +135,11 @@ model Item {
   uomConversions  ItemUOMConversion[]
   importedItems   ImportedItem[]
 
-  @@unique([healthTouchItemId, facilityId])
+  // NOTE: healthTouchItemId uniqueness is enforced at the application layer.
+  // SQL Server treats NULL as equal in unique constraints, so @@unique([healthTouchItemId, facilityId])
+  // would block all vendor-imported items (which have no healthTouchItemId).
+  // A filtered unique index (WHERE healthTouchItemId IS NOT NULL) must be added via raw migration.
+  @@index([healthTouchItemId])
   @@index([facilityId])
   @@index([storageLocationId])
   @@map("Item")
