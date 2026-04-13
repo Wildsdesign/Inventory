@@ -1,0 +1,445 @@
+// Inventory — Inventory Management Module
+// Prisma schema — Azure SQL Server
+//
+// Multi-tenancy: every record scoped to facilityId via the facility context middleware.
+// SCHEMA NAMESPACE: All Inventory tables live in the [inventory] schema.
+//
+// Key models:
+//   Item — inventory item with current quantity and average cost
+//   StorageLocation — facility storage areas with walk-order sorting
+//   Vendor — vendor management
+//   VendorImportProfile — learned column mappings per vendor
+//   ItemVendor — item ↔ vendor cross-reference
+//   ItemLayer — FIFO cost layers (received quantities)
+//   ItemTransaction — received / waste / adjustment transactions
+//   ItemUOMConversion — per-item unit conversions
+//   ImportJob / ImportedItem — AI-powered vendor file import pipeline
+//   ItemNutrition — USDA nutrition enrichment (1:1 with Item)
+//   ItemAllergen — allergen flags per item
+//   Allergen — facility allergen catalog (Big 9 + drug interactions + custom)
+
+generator client {
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+  schemas  = ["inventory"]
+}
+
+// ============================================================
+// FACILITY & AUTH
+// ============================================================
+
+model Facility {
+  id        String   @id @default(cuid())
+  name      String
+  settings  String?  @db.NVarChar(Max)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users            AppUser[]
+  items            Item[]
+  vendors          Vendor[]
+  allergens        Allergen[]
+  storageLocations StorageLocation[]
+  importJobs       ImportJob[]
+  auditLogs        AuditLog[]
+
+  @@map("Facility")
+  @@schema("inventory")
+}
+
+// SQL Server provider does NOT support Prisma enums — using String fields with
+// validation in application code.
+
+model AppUser {
+  id         String   @id @default(cuid())
+  pin        String   @unique
+  email      String?  @unique
+  name       String
+  role       String   @default("STAFF")   // ADMIN | MANAGER | STAFF
+  status     String   @default("ACTIVE")  // ACTIVE | INACTIVE
+  facilityId String   @map("facility_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  facility     Facility          @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  transactions ItemTransaction[]
+
+  @@index([facilityId])
+  @@map("AppUser")
+  @@schema("inventory")
+}
+
+// ============================================================
+// STORAGE LOCATIONS
+// ============================================================
+
+model StorageLocation {
+  id          String   @id @default(cuid())
+  facilityId  String   @map("facility_id")
+  name        String
+  description String?  @db.NVarChar(500)
+  category    String?  // dry | refrigerated | frozen | production | receiving | specialty
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  items    Item[]
+
+  @@unique([facilityId, name])
+  @@index([facilityId])
+  @@map("StorageLocation")
+  @@schema("inventory")
+}
+
+// ============================================================
+// ITEMS
+// ============================================================
+
+model Item {
+  id                String    @id @default(cuid())
+  facilityId        String    @map("facility_id")
+  name              String
+  healthTouchItemId String?   @map("healthtouch_item_id")
+  isRecipe          Boolean   @default(false) @map("is_recipe")
+  category          String?
+  portionSize       Float?    @map("portion_size")
+  portionUnit       String?   @map("portion_unit")
+  // Average cost — recalculated on every receive (weighted average of active layers)
+  itemCost          Float?    @map("item_cost")
+  // Current on-hand quantity (sum of active layers, decremented by waste/adjustments)
+  currentQty        Float     @default(0) @map("current_qty")
+  // Reorder thresholds for low-stock visibility
+  reorderPoint      Float?    @map("reorder_point")
+  reorderQty        Float?    @map("reorder_qty")
+  storageLocationId String?   @map("storage_location_id")
+  syncedAt          DateTime  @default(now()) @map("synced_at")
+  pushedAt          DateTime? @map("pushed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  facility        Facility         @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  storageLocation StorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  nutrition       ItemNutrition?
+  allergens       ItemAllergen[]
+  vendors         ItemVendor[]
+  layers          ItemLayer[]
+  transactions    ItemTransaction[]
+  uomConversions  ItemUOMConversion[]
+  importedItems   ImportedItem[]
+
+  @@unique([healthTouchItemId, facilityId])
+  @@index([facilityId])
+  @@index([storageLocationId])
+  @@map("Item")
+  @@schema("inventory")
+}
+
+// ============================================================
+// ITEM NUTRITION (1:1 with Item)
+// ============================================================
+
+model ItemNutrition {
+  id     String @id @default(cuid())
+  itemId String @unique @map("item_id")
+
+  servingSize  Float?  @map("serving_size")
+  servingUnit  String? @map("serving_unit")
+
+  // Core 16 (FDA 15 mandatory + Phosphorus for renal diets)
+  calories     Float?
+  protein      Float?
+  totalFat     Float?  @map("total_fat")
+  saturatedFat Float?  @map("saturated_fat")
+  transFat     Float?  @map("trans_fat")
+  carbohydrate Float?
+  fiber        Float?
+  sugar        Float?
+  addedSugar   Float?  @map("added_sugar")
+  cholesterol  Float?
+  sodium       Float?
+  potassium    Float?
+  calcium      Float?
+  iron         Float?
+  phosphorus   Float?
+  vitaminD     Float?  @map("vitamin_d")
+
+  // Extended — all USDA nutrients as JSON
+  rawNutrients String? @db.NVarChar(Max) @map("raw_nutrients")
+  ingredients  String? @db.NVarChar(Max)
+
+  source        String?
+  usdaFdcId     String?   @map("usda_fdc_id")
+  confidence    Float?
+  lastEnrichedAt DateTime? @map("last_enriched_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@map("ItemNutrition")
+  @@schema("inventory")
+}
+
+// ============================================================
+// ALLERGENS
+// ============================================================
+
+model Allergen {
+  id         String  @id @default(cuid())
+  facilityId String  @map("facility_id")
+  name       String
+  severity   String? // informational label
+  isBigNine  Boolean @default(false) @map("is_big_nine")
+  keywords   String? @db.NVarChar(Max)   // JSON array of regex patterns
+  aiHint     String? @db.NVarChar(500)  @map("ai_hint")
+  category   String  @default("ALLERGEN") // ALLERGEN | DRUG_INTERACTION
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  facility      Facility       @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  itemAllergens ItemAllergen[]
+
+  @@unique([name, facilityId])
+  @@index([facilityId])
+  @@map("Allergen")
+  @@schema("inventory")
+}
+
+model ItemAllergen {
+  id         String  @id @default(cuid())
+  itemId     String  @map("item_id")
+  allergenId String  @map("allergen_id")
+  severity   String  // CONTAINS | MAY_CONTAIN
+  source     String  // USDA_VERIFIED | AI_SUGGESTED | MANUAL | ROLLUP
+  confidence Float?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  item     Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  allergen Allergen @relation(fields: [allergenId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemId, allergenId])
+  @@index([itemId])
+  @@map("ItemAllergen")
+  @@schema("inventory")
+}
+
+// ============================================================
+// VENDORS
+// ============================================================
+
+model Vendor {
+  id           String   @id @default(cuid())
+  facilityId   String   @map("facility_id")
+  name         String
+  contactName  String?  @map("contact_name")
+  contactEmail String?  @map("contact_email")
+  contactPhone String?  @map("contact_phone")
+  notes        String?  @db.NVarChar(Max)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  facility       Facility              @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  importProfiles VendorImportProfile[]
+  itemVendors    ItemVendor[]
+  importJobs     ImportJob[]
+
+  @@index([facilityId])
+  @@map("Vendor")
+  @@schema("inventory")
+}
+
+// Learned column mapping profile — AI maps the first time, reused after
+model VendorImportProfile {
+  id                String   @id @default(cuid())
+  vendorId          String   @map("vendor_id")
+  headerFingerprint String   @map("header_fingerprint")
+  columnMappings    String   @db.NVarChar(Max) @map("column_mappings") // JSON
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@map("VendorImportProfile")
+  @@schema("inventory")
+}
+
+// Item ↔ Vendor cross-reference (an item can be sourced from multiple vendors)
+model ItemVendor {
+  id             String    @id @default(cuid())
+  itemId         String    @map("item_id")
+  vendorId       String    @map("vendor_id")
+  vendorSku      String?   @map("vendor_sku")
+  vendorItemName String?   @map("vendor_item_name")
+  packSize       String?   @map("pack_size")
+  lastCost       Float?    @map("last_cost")
+  lastReceivedAt DateTime? @map("last_received_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([itemId, vendorId])
+  @@index([itemId])
+  @@map("ItemVendor")
+  @@schema("inventory")
+}
+
+// ============================================================
+// COST LAYERS (FIFO)
+// ============================================================
+
+model ItemLayer {
+  id          String    @id @default(cuid())
+  itemId      String    @map("item_id")
+  quantity    Float
+  originalQty Float     @map("original_qty")
+  unitCost    Float     @map("unit_cost")
+  receivedAt  DateTime  @default(now()) @map("received_at")
+  sourceType  String    @map("source_type") // PURCHASE | ADJUSTMENT | OPENING
+  depleted    Boolean   @default(false)
+  depletedAt  DateTime? @map("depleted_at")
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@map("ItemLayer")
+  @@schema("inventory")
+}
+
+// ============================================================
+// TRANSACTIONS
+// ============================================================
+
+model ItemTransaction {
+  id              String   @id @default(cuid())
+  itemId          String   @map("item_id")
+  type            String   // received | waste | adjustment
+  quantity        Float
+  unitCost        Float?   @map("unit_cost")
+  reference       String?
+  performedById   String?  @map("performed_by")
+  transactionDate DateTime @default(now()) @map("transaction_date")
+
+  item        Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  performedBy AppUser? @relation(fields: [performedById], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([itemId])
+  @@index([transactionDate])
+  @@map("ItemTransaction")
+  @@schema("inventory")
+}
+
+// ============================================================
+// UOM CONVERSIONS
+// ============================================================
+
+model ItemUOMConversion {
+  id           String  @id @default(cuid())
+  itemId       String  @map("item_id")
+  fromUnit     String  @map("from_unit")
+  toBaseUnits  Float   @map("to_base_units") // how many base units does 1 fromUnit equal
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, fromUnit])
+  @@index([itemId])
+  @@map("ItemUOMConversion")
+  @@schema("inventory")
+}
+
+// ============================================================
+// IMPORT PIPELINE
+// ============================================================
+
+model ImportJob {
+  id             String    @id @default(cuid())
+  facilityId     String    @map("facility_id")
+  vendorId       String?   @map("vendor_id")
+  fileName       String    @map("file_name")
+  status         String    @default("pending") // pending | processing | completed | failed
+  totalRows      Int?      @map("total_rows")
+  importedCount  Int?      @map("imported_count")
+  skippedCount   Int?      @map("skipped_count")
+  errorCount     Int?      @map("error_count")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  facility      Facility       @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  vendor        Vendor?        @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  importedItems ImportedItem[]
+
+  @@index([facilityId])
+  @@map("ImportJob")
+  @@schema("inventory")
+}
+
+model ImportedItem {
+  id          String  @id @default(cuid())
+  importJobId String  @map("import_job_id")
+  itemId      String? @map("item_id")
+  rawData     String  @db.NVarChar(Max) @map("raw_data")  // JSON
+  matchType   String? @map("match_type") // new | sku_match | name_match | fuzzy_match
+  status      String  @default("imported") // imported | skipped | error
+  notes       String? @db.NVarChar(500)
+
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  item      Item?     @relation(fields: [itemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([importJobId])
+  @@map("ImportedItem")
+  @@schema("inventory")
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  facilityId String?  @map("facility_id")
+  userId     String?  @map("user_id")
+  action     String
+  targetType String   @map("target_type")
+  targetId   String?  @map("target_id")
+  details    String?  @db.NVarChar(Max)
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  facility Facility? @relation(fields: [facilityId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([facilityId, createdAt])
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("AuditLog")
+  @@schema("inventory")
+}
+
+// ============================================================
+// FAILED PIN ATTEMPTS
+// ============================================================
+
+model FailedPinAttempt {
+  id           String    @id @default(cuid())
+  pinHash      String    @unique @map("pin_hash")
+  failureCount Int       @default(0) @map("failure_count")
+  firstFailAt  DateTime  @default(now()) @map("first_fail_at")
+  lastFailAt   DateTime  @default(now()) @map("last_fail_at")
+  lockedUntil  DateTime? @map("locked_until")
+
+  @@index([lockedUntil])
+  @@map("FailedPinAttempt")
+  @@schema("inventory")
+}
