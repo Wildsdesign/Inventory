@@ -200,6 +200,7 @@ export const ImportApplySchema = z
         vendorItemName: nullableShort,
         packSize: nullableShort,
         unitCost: z.number().finite().nonnegative().nullable().optional(),
+        costPerBaseUnit: z.number().finite().nonnegative().nullable().optional(),
         category: nullableShort,
         portionUnit: nullableShort,
         allergens: z.array(z.string()).optional(),
