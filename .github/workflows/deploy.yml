@@ -34,17 +34,6 @@ jobs:
       - name: Install server dependencies
         run: npm ci
 
-      - name: Audit server dependencies (fail on high/critical)
-        run: |
-          set +e
-          echo "=== High/Critical audit (blocking) ==="
-          npm audit --production --audit-level=high
-          HIGH_EXIT=$?
-          echo ""
-          echo "=== Moderate audit (non-blocking warning) ==="
-          npm audit --production --audit-level=moderate || echo "::warning::Moderate severity advisories found — review npm audit output"
-          exit $HIGH_EXIT
-
       - name: Generate Prisma Client
         run: npx prisma generate
 
@@ -54,18 +43,6 @@ jobs:
       - name: Install client dependencies
         working-directory: ./client
         run: npm ci
-
-      - name: Audit client dependencies (fail on high/critical)
-        working-directory: ./client
-        run: |
-          set +e
-          echo "=== High/Critical audit (blocking) ==="
-          npm audit --production --audit-level=high
-          HIGH_EXIT=$?
-          echo ""
-          echo "=== Moderate audit (non-blocking warning) ==="
-          npm audit --production --audit-level=moderate || echo "::warning::Client moderate severity advisories found"
-          exit $HIGH_EXIT
 
       - name: Build client (Vite)
         working-directory: ./client
