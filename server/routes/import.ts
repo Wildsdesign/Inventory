@@ -18,6 +18,8 @@ import { validateBody } from '../middleware/validate';
 import { ImportPreviewSchema, ImportApplySchema } from '../lib/validation';
 import { parseFile } from '../services/file-parser';
 import { mapColumns, fingerprintHeaders } from '../services/ai-column-mapper';
+import { parseInventoryBatch } from '../services/ai-unit-resolver';
+import { analyzeImportPreview } from '../services/ai-import-analyzer';
 import { detectDuplicates } from '../services/duplicate-detector';
 import { auditFromRequest } from '../services/audit-log';
 import { log } from '../utils/logger';
@@ -88,6 +90,24 @@ export function registerImportRoutes(app: Express) {
         // Filter rows that have at least a name
         const rowsWithName = normalizedRows.filter((r) => r.normalized.name?.trim());
 
+        // Resolve unit costs (deterministic first, AI fallback for complex formats)
+        const rowsForUnitResolution = rowsWithName.map((r) => {
+          const cost = r.normalized.unitCost ? parseFloat(r.normalized.unitCost) : 0;
+          return {
+            name: r.normalized.name,
+            purchaseDescription: r.normalized.packSize || '',
+            cost: isNaN(cost) ? 0 : cost,
+            packField: r.normalized.packSize || undefined,
+          };
+        });
+
+        const unitResolutions = rowsForUnitResolution.some((r) => r.cost > 0)
+          ? await parseInventoryBatch(rowsForUnitResolution).catch((err) => {
+              log.error(err, { operation: 'importPreview.unitResolution' });
+              return rowsForUnitResolution.map(() => null);
+            })
+          : rowsForUnitResolution.map(() => null);
+
         // Detect duplicates
         const matchResults = await detectDuplicates(
           facilityId,
@@ -98,9 +118,11 @@ export function registerImportRoutes(app: Express) {
           })),
         );
 
+        // Build initial preview rows
         const previewRows = rowsWithName.map((r, idx) => {
           const match = matchResults[idx];
           const cost = r.normalized.unitCost ? parseFloat(r.normalized.unitCost) : null;
+          const unitRes = unitResolutions[idx];
 
           return {
             rowIndex: idx,
@@ -109,11 +131,16 @@ export function registerImportRoutes(app: Express) {
             vendorItemName: r.normalized.vendorItemName || null,
             packSize: r.normalized.packSize || null,
             unitCost: isNaN(cost as number) ? null : cost,
+            costPerBaseUnit: unitRes?.costPerBaseUnit ?? null,
+            resolvedBaseUnit: unitRes?.baseUnit ?? null,
+            unitResolutionNotes: unitRes?.notes ?? null,
+            unitResolutionConfidence: unitRes?.confidence ?? null,
             category: r.normalized.category || null,
             portionUnit: r.normalized.portionUnit || null,
             allergens: r.normalized.allergens
               ? r.normalized.allergens.split(/[,;]/).map((a) => a.trim()).filter(Boolean)
               : [],
+            inferredAllergens: [] as string[],
             matchType: match.matchType,
             itemId: match.itemId || null,
             itemName: match.itemName || null,
@@ -122,6 +149,34 @@ export function registerImportRoutes(app: Express) {
             rawRow: r.rawRow,
           };
         });
+
+        // AI: category suggestions + allergen inference from ingredients
+        const analysisInput = previewRows.map((r, idx) => ({
+          index: idx,
+          name: r.name,
+          category: r.category,
+          ingredients: (rowsWithName[idx]?.normalized.ingredients) || null,
+        }));
+
+        const analysis = await analyzeImportPreview(analysisInput).catch((err) => {
+          log.error(err, { operation: 'importPreview.analyze' });
+          return { categorySuggestions: [], inferredAllergens: [] };
+        });
+
+        // Apply category suggestions to rows that had none
+        for (const suggestion of analysis.categorySuggestions) {
+          if (suggestion.index < previewRows.length) {
+            previewRows[suggestion.index].category = suggestion.category;
+          }
+        }
+
+        // Apply inferred allergens (informational only — operator reviews before apply)
+        for (const inferred of analysis.inferredAllergens) {
+          const rowIdx = previewRows.findIndex((r) => r.name === inferred.itemName);
+          if (rowIdx >= 0 && !previewRows[rowIdx].inferredAllergens.includes(inferred.allergen)) {
+            previewRows[rowIdx].inferredAllergens.push(inferred.allergen);
+          }
+        }
 
         const skippedRows = normalizedRows.filter((r) => !r.normalized.name?.trim()).length;
 
@@ -159,6 +214,7 @@ export function registerImportRoutes(app: Express) {
             vendorItemName?: string | null;
             packSize?: string | null;
             unitCost?: number | null;
+            costPerBaseUnit?: number | null;
             category?: string | null;
             portionUnit?: string | null;
             allergens?: string[];
@@ -208,7 +264,8 @@ export function registerImportRoutes(app: Express) {
                   name: row.name,
                   category: row.category ?? null,
                   portionUnit: row.portionUnit ?? null,
-                  itemCost: row.unitCost ?? null,
+                  // Prefer resolved per-unit cost over raw case price
+                  itemCost: row.costPerBaseUnit ?? row.unitCost ?? null,
                 },
               });
               itemId = item.id;
@@ -233,7 +290,8 @@ export function registerImportRoutes(app: Express) {
                 data: {
                   category: row.category ?? undefined,
                   portionUnit: row.portionUnit ?? undefined,
-                  itemCost: row.unitCost ?? undefined,
+                  // Prefer resolved per-unit cost over raw case price
+                  itemCost: row.costPerBaseUnit ?? row.unitCost ?? undefined,
                   updatedAt: new Date(),
                 },
               });
