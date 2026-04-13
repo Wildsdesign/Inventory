@@ -86,6 +86,13 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: npx tsx prisma/demo-seed.ts
 
+      - name: Set Azure startup command
+        run: |
+          az webapp config set \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_APP_NAME }} \
+            --startup-file "node dist/index.js"
+
       - name: Deploy to Azure App Service via az CLI
         run: |
           az webapp deploy \
