@@ -1,0 +1,119 @@
+name: Deploy Inventory to Azure App Service
+
+# Single App Service deployment — serves both the Express API and the React frontend.
+# Build steps: install server deps → build client → build server → package → deploy.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# OIDC federated credentials require id-token: write
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: '22.x'
+  AZURE_APP_NAME: inventory-dev-app
+  AZURE_RESOURCE_GROUP: meal-mind-dev
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Audit server dependencies (fail on high/critical)
+        run: |
+          set +e
+          echo "=== High/Critical audit (blocking) ==="
+          npm audit --production --audit-level=high
+          HIGH_EXIT=$?
+          echo ""
+          echo "=== Moderate audit (non-blocking warning) ==="
+          npm audit --production --audit-level=moderate || echo "::warning::Moderate severity advisories found — review npm audit output"
+          exit $HIGH_EXIT
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Build server (TypeScript)
+        run: npm run build
+
+      - name: Install client dependencies
+        working-directory: ./client
+        run: npm ci
+
+      - name: Audit client dependencies (fail on high/critical)
+        working-directory: ./client
+        run: |
+          set +e
+          echo "=== High/Critical audit (blocking) ==="
+          npm audit --production --audit-level=high
+          HIGH_EXIT=$?
+          echo ""
+          echo "=== Moderate audit (non-blocking warning) ==="
+          npm audit --production --audit-level=moderate || echo "::warning::Client moderate severity advisories found"
+          exit $HIGH_EXIT
+
+      - name: Build client (Vite)
+        working-directory: ./client
+        env:
+          VITE_API_BASE: ${{ secrets.VITE_API_BASE || '/api' }}
+        run: npm run build
+
+      - name: Prepare deployment package
+        run: |
+          mkdir -p deploy
+          cp -r dist deploy/
+          cp -r node_modules deploy/
+          cp -r prisma deploy/
+          cp package.json deploy/
+          cp package-lock.json deploy/
+          mkdir -p deploy/public
+          cp -r client/dist/* deploy/public/
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID }}
+
+      - name: Zip deployment package
+        run: |
+          cd deploy
+          zip -r ../deploy.zip .
+          cd ..
+          ls -lh deploy.zip
+
+      - name: Run prisma db push
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: npx prisma db push --skip-generate
+
+      - name: Run gated demo seed
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: npx tsx prisma/demo-seed.ts
+
+      - name: Deploy to Azure App Service via az CLI
+        run: |
+          az webapp deploy \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_APP_NAME }} \
+            --src-path ./deploy.zip \
+            --type zip \
+            --async false
