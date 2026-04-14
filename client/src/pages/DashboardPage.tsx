@@ -13,7 +13,8 @@ interface VendorsResponse {
 }
 
 interface StorageLocationsResponse {
-  storageLocations: Array<{ id: string; name: string; itemCount: number }>;
+  locations: Array<{ id: string; name: string; itemCount: number }>;
+  count: number;
 }
 
 interface LowStockResponse {
@@ -73,7 +74,7 @@ export function DashboardPage() {
 
   const totalItems = itemsData?.count ?? 0;
   const activeVendors = vendorsData?.vendors.filter((v) => v.isActive).length ?? 0;
-  const locations = locationsData?.storageLocations.length ?? 0;
+  const locations = locationsData?.count ?? locationsData?.locations.length ?? 0;
   const lowStockCount = lowStockData?.count ?? 0;
 
   return (

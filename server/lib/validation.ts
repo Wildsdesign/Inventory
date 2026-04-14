@@ -123,6 +123,12 @@ export const StorageLocationReorderSchema = z
   })
   .strict();
 
+export const StorageLocationSetupSchema = z
+  .object({
+    names: z.array(z.string().min(1)).min(1).max(50),
+  })
+  .strict();
+
 // ── Allergens ─────────────────────────────────────────────────────────────
 
 export const AllergenCreateSchema = z

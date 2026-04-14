@@ -1,5 +1,9 @@
 /**
- * Storage Locations API client (list-only for now; CRUD lives on StorageLocationsPage).
+ * Storage Locations API client.
+ *
+ * Unified adapter matching Recipe/StockSense so both apps share the same
+ * Storage Locations page shape — CRUD + walk-order reorder + setup wizard
+ * (bulk create from a standard hospital-kitchen template catalog).
  */
 
 import { apiRequest } from './api';
@@ -11,21 +15,70 @@ export interface StorageLocation {
   category: string | null;
   sortOrder: number;
   isActive: boolean;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface StorageLocationsListResponse {
-  storageLocations: StorageLocation[];
+  locations: StorageLocation[];
+  count: number;
 }
 
-// Normalized shape used by the items edit dialog — matches Recipe's naming
-// (`locations`) so the dropdown component reads identically.
-export interface NormalizedStorageLocations {
-  locations: StorageLocation[];
+export interface StorageLocationInput {
+  name: string;
+  description?: string | null;
+  category?: string | null;
+  sortOrder?: number;
+  isActive?: boolean;
+}
+
+export interface TemplateLocation {
+  name: string;
+  description: string;
+  category: string;
+  alreadyExists: boolean;
+}
+
+export interface TemplateCategory {
+  category: string;
+  label: string;
+  locations: TemplateLocation[];
+}
+
+export interface TemplatesResponse {
+  categories: TemplateCategory[];
+  totalTemplates: number;
+  existingCount: number;
 }
 
 export const storageLocationsApi = {
-  list: async (): Promise<NormalizedStorageLocations> => {
-    const raw = await apiRequest<StorageLocationsListResponse>('GET', '/v1/storage-locations');
-    return { locations: raw.storageLocations };
-  },
+  list: () =>
+    apiRequest<StorageLocationsListResponse>('GET', '/v1/storage-locations'),
+
+  templates: () =>
+    apiRequest<TemplatesResponse>('GET', '/v1/storage-locations/templates'),
+
+  setup: (names: string[]) =>
+    apiRequest<{ success: boolean; created: number }>(
+      'POST',
+      '/v1/storage-locations/setup',
+      { names },
+    ),
+
+  create: (data: StorageLocationInput) =>
+    apiRequest<{ id: string; success: boolean }>('POST', '/v1/storage-locations', data),
+
+  update: (id: string, data: Partial<StorageLocationInput>) =>
+    apiRequest<StorageLocation>('PUT', `/v1/storage-locations/${id}`, data),
+
+  delete: (id: string) =>
+    apiRequest<{ success: boolean }>('DELETE', `/v1/storage-locations/${id}`),
+
+  reorder: (order: Array<{ id: string; sortOrder: number }>) =>
+    apiRequest<{ success: boolean; count: number }>(
+      'POST',
+      '/v1/storage-locations/reorder',
+      { order },
+    ),
 };

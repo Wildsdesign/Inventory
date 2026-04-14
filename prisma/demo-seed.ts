@@ -1,7 +1,7 @@
 /**
  * Inventory — Demo Seed
  *
- * Seeds one Facility, 2 Vendors, 6 Storage Locations, 46 Items, allergens (Big 9 + 8 drug
+ * Seeds one Facility, 2 Vendors, 8 Storage Locations, 46 Items, allergens (Big 9 + 8 drug
  * interactions), nutrition data, and a few opening ItemLayers.
  *
  * Gated: runs only when facility.count() === 0 to avoid double-seeding.
@@ -79,66 +79,94 @@ async function main() {
 
   console.log('[demo-seed] Vendors: Sysco, US Foods');
 
-  // ── Storage Locations ────────────────────────────────────────────────
-  const [walkInCooler, walkInFreezer, dryStorage, cannedGoods, productionKitchen, receivingDock] =
-    await Promise.all([
-      prisma.storageLocation.create({
-        data: {
-          facilityId: facility.id,
-          name: 'Walk-In Cooler',
-          description: 'Main refrigerated storage. 34–38°F.',
-          category: 'refrigerated',
-          sortOrder: 1,
-        },
-      }),
-      prisma.storageLocation.create({
-        data: {
-          facilityId: facility.id,
-          name: 'Walk-In Freezer',
-          description: 'Main frozen storage. 0°F or below.',
-          category: 'frozen',
-          sortOrder: 2,
-        },
-      }),
-      prisma.storageLocation.create({
-        data: {
-          facilityId: facility.id,
-          name: 'Dry Storage',
-          description: 'Ambient dry goods storage. 60–70°F.',
-          category: 'dry',
-          sortOrder: 3,
-        },
-      }),
-      prisma.storageLocation.create({
-        data: {
-          facilityId: facility.id,
-          name: 'Canned & Jarred Goods',
-          description: 'Canned, jarred, and shelf-stable items.',
-          category: 'dry',
-          sortOrder: 4,
-        },
-      }),
-      prisma.storageLocation.create({
-        data: {
-          facilityId: facility.id,
-          name: 'Production Kitchen',
-          description: 'Active prep area — items in use for current production.',
-          category: 'production',
-          sortOrder: 5,
-        },
-      }),
-      prisma.storageLocation.create({
-        data: {
-          facilityId: facility.id,
-          name: 'Receiving Dock',
-          description: 'Temporary staging area for incoming deliveries.',
-          category: 'receiving',
-          sortOrder: 6,
-        },
-      }),
-    ]);
+  // ── Storage Locations (standard hospital kitchen catalog) ────────────
+  // Walking order matches physical kitchen flow. Shared identically with
+  // Recipe — both apps seed the same 8 locations for a consistent demo.
+  const [
+    walkInCooler,
+    walkInFreezer,
+    dryStorage,
+    produceCooler,
+    bakeryShelf,
+    beverageCooler,
+    productionKitchen,
+    cannedGoods,
+  ] = await Promise.all([
+    prisma.storageLocation.create({
+      data: {
+        facilityId: facility.id,
+        name: 'Walk-In Cooler',
+        description: 'Main refrigerated storage. Fresh proteins, prepped items. 34–38°F.',
+        category: 'refrigerated',
+        sortOrder: 10,
+      },
+    }),
+    prisma.storageLocation.create({
+      data: {
+        facilityId: facility.id,
+        name: 'Walk-In Freezer',
+        description: 'Main frozen storage. Frozen proteins, prepared items. 0°F or below.',
+        category: 'frozen',
+        sortOrder: 20,
+      },
+    }),
+    prisma.storageLocation.create({
+      data: {
+        facilityId: facility.id,
+        name: 'Dry Storage',
+        description: 'Ambient dry goods. Pasta, rice, flour, dry spices. 60–70°F.',
+        category: 'dry',
+        sortOrder: 30,
+      },
+    }),
+    prisma.storageLocation.create({
+      data: {
+        facilityId: facility.id,
+        name: 'Produce Cooler',
+        description: 'Fresh produce refrigeration. Lettuce, tomatoes, peppers, carrots.',
+        category: 'refrigerated',
+        sortOrder: 40,
+      },
+    }),
+    prisma.storageLocation.create({
+      data: {
+        facilityId: facility.id,
+        name: 'Bakery Shelf',
+        description: 'Bread, buns, tortillas, crackers.',
+        category: 'dry',
+        sortOrder: 50,
+      },
+    }),
+    prisma.storageLocation.create({
+      data: {
+        facilityId: facility.id,
+        name: 'Beverage Cooler',
+        description: 'Juices, sodas, bottled water.',
+        category: 'refrigerated',
+        sortOrder: 60,
+      },
+    }),
+    prisma.storageLocation.create({
+      data: {
+        facilityId: facility.id,
+        name: 'Production Kitchen',
+        description: 'Active prep area — items in use for current production.',
+        category: 'production',
+        sortOrder: 70,
+      },
+    }),
+    prisma.storageLocation.create({
+      data: {
+        facilityId: facility.id,
+        name: 'Canned & Jarred Goods',
+        description: 'Canned goods, jarred sauces, shelf-stable items.',
+        category: 'dry',
+        sortOrder: 80,
+      },
+    }),
+  ]);
 
-  console.log('[demo-seed] Storage locations created (6)');
+  console.log('[demo-seed] Storage locations created (8)');
 
   // ── Allergens — Big 9 + 8 Drug Interactions ──────────────────────────
   const allergenData = [
