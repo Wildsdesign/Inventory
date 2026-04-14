@@ -69,6 +69,9 @@ export const ItemCreateSchema = z
     healthTouchItemId: nullableShort,
     currentQty: z.number().finite().nonnegative().optional(),
     itemCost: z.number().finite().nonnegative().nullable().optional(),
+    primaryVendorId: idString.nullable().optional(),
+    nutrition: nutritionInput.optional(),
+    allergens: z.array(allergenInput).max(200).optional(),
   })
   .strict();
 
@@ -82,6 +85,7 @@ export const ItemUpdateSchema = z
     reorderPoint: z.number().finite().nonnegative().nullable().optional(),
     reorderQty: z.number().finite().nonnegative().nullable().optional(),
     healthTouchItemId: nullableShort,
+    primaryVendorId: idString.nullable().optional(),
     nutrition: nutritionInput.optional(),
     allergens: z.array(allergenInput).max(200).optional(),
   })

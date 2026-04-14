@@ -18,6 +18,8 @@ import {
   captureAllUSDANutrients,
   extractAllergensFromIngredients,
   parseAllergenKeywords,
+  USDA_NUTRIENT_MAP,
+  type USDAFoodNutrient,
 } from '../services/usda-integration';
 import { mergeAllergenDecision } from '../services/allergen-merge';
 import { auditFromRequest } from '../services/audit-log';
@@ -38,7 +40,32 @@ export function registerUsdaRoutes(app: Express) {
         return res.status(503).json({ error });
       }
 
-      res.json({ results, count: results.length });
+      // Shape each result with a lightweight nutrientPreview so the
+      // search dialog can show calories / protein / sodium inline.
+      const shaped = results.map((r) => {
+        const preview: Record<string, number> = {};
+        for (const n of (r.foodNutrients ?? []) as USDAFoodNutrient[]) {
+          const id = n.nutrient?.id ?? n.nutrientId ?? 0;
+          const value = n.amount ?? n.value;
+          const field = USDA_NUTRIENT_MAP[id];
+          if (field && value != null) preview[field] = value;
+        }
+        return {
+          fdcId: r.fdcId,
+          description: r.description,
+          dataType: r.dataType,
+          brandOwner: r.brandOwner,
+          brandName: r.brandName,
+          ingredients: r.ingredients,
+          servingSize: r.servingSize,
+          servingSizeUnit: r.servingSizeUnit,
+          householdServingFullText: r.householdServingFullText,
+          score: r.score,
+          nutrientPreview: preview,
+        };
+      });
+
+      res.json({ results: shaped, count: shaped.length });
     } catch (error) {
       log.error(error, { operation: 'usdaSearch' });
       res.status(500).json({ error: 'USDA search failed' });
@@ -64,9 +91,14 @@ export function registerUsdaRoutes(app: Express) {
         fdcId,
         description: data.description,
         dataType: data.dataType,
+        brandOwner: data.brandOwner,
+        brandName: data.brandName,
         ingredients: data.ingredients,
         servingSize: data.servingSize,
         servingSizeUnit: data.servingSizeUnit,
+        // `mapped` is the standard name across the MindServe product family.
+        // `nutrition` is kept as a deprecated alias for any existing callers.
+        mapped,
         nutrition: mapped,
         rawNutrients: raw,
       });

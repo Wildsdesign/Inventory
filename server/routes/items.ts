@@ -263,9 +263,12 @@ export function registerItemsRoutes(app: Express) {
           healthTouchItemId?: string | null;
           currentQty?: number;
           itemCost?: number | null;
+          primaryVendorId?: string | null;
+          nutrition?: Record<string, unknown>;
+          allergens?: Array<{ allergenId: string; severity?: string; source?: string }>;
         };
 
-        const item = await prisma.item.create({
+        const created = await prisma.item.create({
           data: {
             facilityId,
             name: data.name,
@@ -279,11 +282,64 @@ export function registerItemsRoutes(app: Express) {
             currentQty: data.currentQty ?? 0,
             itemCost: data.itemCost ?? null,
           },
+        });
+
+        // Nutrition (optional on create — no existing nutrition to merge)
+        if (data.nutrition && typeof data.nutrition === 'object') {
+          const NUTRITION_NUMERIC = [
+            'servingSize', 'calories', 'protein', 'totalFat', 'saturatedFat', 'transFat',
+            'carbohydrate', 'fiber', 'sugar', 'addedSugar', 'cholesterol', 'sodium',
+            'potassium', 'calcium', 'iron', 'phosphorus', 'vitaminD',
+          ] as const;
+
+          const fields: Record<string, unknown> = {};
+          for (const key of NUTRITION_NUMERIC) {
+            if (key in data.nutrition) fields[key] = data.nutrition[key] ?? null;
+          }
+          if ('servingUnit' in data.nutrition) fields.servingUnit = data.nutrition.servingUnit || null;
+          if ('ingredients' in data.nutrition) fields.ingredients = data.nutrition.ingredients || null;
+          if ('rawNutrients' in data.nutrition) fields.rawNutrients = stringifyJson(data.nutrition.rawNutrients);
+          fields.source = 'manual';
+
+          // Only upsert if at least one value was supplied (avoids empty rows)
+          if (Object.keys(fields).some((k) => k !== 'source' && fields[k] != null)) {
+            await prisma.itemNutrition.create({
+              data: { itemId: created.id, ...fields },
+            });
+          }
+        }
+
+        // Allergens
+        if (Array.isArray(data.allergens) && data.allergens.length > 0) {
+          await prisma.itemAllergen.createMany({
+            data: data.allergens.map((a) => ({
+              itemId: created.id,
+              allergenId: a.allergenId,
+              severity: a.severity || 'CONTAINS',
+              source: a.source || 'MANUAL',
+            })),
+          });
+        }
+
+        // Primary vendor link
+        if (data.primaryVendorId) {
+          const vendor = await prisma.vendor.findFirst({
+            where: { id: data.primaryVendorId, facilityId },
+          });
+          if (vendor) {
+            await prisma.itemVendor.create({
+              data: { itemId: created.id, vendorId: vendor.id },
+            });
+          }
+        }
+
+        const item = await prisma.item.findFirst({
+          where: { id: created.id, facilityId },
           include: ITEM_INCLUDE,
         });
 
-        void auditFromRequest(req, { action: 'ITEM_CREATE', targetType: 'Item', targetId: item.id, details: { name: item.name } });
-        res.status(201).json(shapeItem(item));
+        void auditFromRequest(req, { action: 'ITEM_CREATE', targetType: 'Item', targetId: created.id, details: { name: created.name } });
+        res.status(201).json(shapeItem(item!));
       } catch (error) {
         log.error(error, { operation: 'createItem' });
         res.status(500).json({ error: 'Failed to create item' });
@@ -328,6 +384,7 @@ export function registerItemsRoutes(app: Express) {
           reorderPoint,
           reorderQty,
           healthTouchItemId,
+          primaryVendorId,
           nutrition,
           allergens,
         } = req.validBody as {
@@ -339,6 +396,7 @@ export function registerItemsRoutes(app: Express) {
           reorderPoint?: number | null;
           reorderQty?: number | null;
           healthTouchItemId?: string | null;
+          primaryVendorId?: string | null;
           nutrition?: Record<string, unknown>;
           allergens?: Array<{ allergenId: string; severity?: string; source?: string }>;
         };
@@ -405,6 +463,25 @@ export function registerItemsRoutes(app: Express) {
                 severity: a.severity || 'CONTAINS',
                 source: a.source || 'MANUAL',
               })),
+            });
+          }
+        }
+
+        // Primary vendor — ensure an ItemVendor row exists linking to the
+        // selected vendor. We don't purge existing links: the full vendor
+        // management surface lives on the Vendors page, so here we only
+        // add a link when one is missing.
+        if (primaryVendorId) {
+          const vendor = await prisma.vendor.findFirst({
+            where: { id: primaryVendorId, facilityId },
+          });
+          if (vendor) {
+            await prisma.itemVendor.upsert({
+              where: {
+                itemId_vendorId: { itemId: req.params.id, vendorId: vendor.id },
+              },
+              create: { itemId: req.params.id, vendorId: vendor.id },
+              update: {},
             });
           }
         }
