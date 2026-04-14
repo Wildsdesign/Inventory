@@ -85,7 +85,7 @@ export function DashboardPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          title="Total Items"
+          title="Total Inventory"
           value={totalItems}
           icon={Package}
           color="bg-blue-50 text-blue-600"

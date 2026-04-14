@@ -155,9 +155,9 @@ export function ItemsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Items</h1>
+          <h1 className="text-2xl font-semibold text-slate-900">Inventory</h1>
           <p className="text-sm text-slate-600">
-            Manage inventory items. Enrich with USDA nutrition and AI-detected allergens.
+            Manage your inventory. Enrich items with USDA nutrition and AI-detected allergens.
           </p>
         </div>
         <button
@@ -172,7 +172,7 @@ export function ItemsPage() {
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <StatCard
-          label="Total items"
+          label="Total inventory"
           value={stats.total}
           icon={<Package className="h-4 w-4" />}
           color="slate"
@@ -205,7 +205,7 @@ export function ItemsPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or category..."
+            placeholder="Search inventory..."
             className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
           />
         </div>
@@ -234,12 +234,12 @@ export function ItemsPage() {
       {/* Table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-slate-500 text-sm">Loading items...</div>
+          <div className="p-8 text-center text-slate-500 text-sm">Loading inventory...</div>
         ) : filteredItems.length === 0 ? (
           <div className="p-8 text-center text-slate-500">
             <Package className="h-12 w-12 mx-auto mb-3 text-slate-300" />
             <p className="text-sm font-medium">
-              {data?.items.length === 0 ? 'No items yet' : 'No items match your filters'}
+              {data?.items.length === 0 ? 'No inventory yet' : 'No items match your filters'}
             </p>
             <p className="text-xs mt-1">
               {data?.items.length === 0

@@ -56,7 +56,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="flex-1 p-3 space-y-1">
           <NavLink to="/" icon={LayoutDashboard}>Dashboard</NavLink>
-          <NavLink to="/items" icon={Package}>Items</NavLink>
+          <NavLink to="/items" icon={Package}>Inventory</NavLink>
           <NavLink to="/vendors" icon={Truck}>Vendors</NavLink>
           <NavLink to="/import" icon={Upload}>Import</NavLink>
           <NavLink to="/storage-locations" icon={MapPin}>Storage</NavLink>
