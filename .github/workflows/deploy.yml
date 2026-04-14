@@ -83,24 +83,10 @@ jobs:
           cd ..
           ls -lh deploy.zip
 
-      - name: Deploy to Azure App Service via az CLI
-        run: |
-          az webapp deploy \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.AZURE_APP_NAME }} \
-            --src-path ./deploy.zip \
-            --type zip \
-            --async true
-
-      - name: Set Azure startup command
-        run: |
-          az webapp config set \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.AZURE_APP_NAME }} \
-            --startup-file "node dist/index.js"
-
-      - name: Restart app
-        run: |
-          az webapp restart \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --name ${{ env.AZURE_APP_NAME }}
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_APP_NAME }}
+          slot-name: Production
+          package: ./deploy.zip
+          startup-command: 'node dist/index.js'
