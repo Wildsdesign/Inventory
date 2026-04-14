@@ -31,8 +31,12 @@ async function main() {
   console.log('[demo-seed] Seeding demo data…');
 
   // ── Facility ────────────────────────────────────────────────────────
+  // Fixed ID matches the DEFAULT_FACILITY_ID in server/middleware/facility-context.ts
+  // and client/src/contexts/auth-context.tsx. Pre-OIDC demo mode bypasses auth and
+  // hardcodes this ID on both sides — the seeded facility must match.
   const facility = await prisma.facility.create({
     data: {
+      id: 'demo-facility',
       name: 'General Hospital — Cafeteria',
     },
   });

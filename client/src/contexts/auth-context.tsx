@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name: 'Inventory User',
     role: 'ADMIN',
     facilityId: 'demo-facility',
-    facilityName: "St. Mary's Medical Center",
+    facilityName: 'General Hospital — Cafeteria',
   };
 
   const [user] = useState<User | null>(DEFAULT_USER);
