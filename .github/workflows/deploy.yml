@@ -64,6 +64,10 @@ jobs:
           cp package-lock.json deploy/
           mkdir -p deploy/public
           cp -r client/dist/* deploy/public/
+          # Override Oryx manifest — az webapp deploy --type zip does NOT wipe wwwroot,
+          # so the old oryx-manifest.toml persists and regenerates the wrong startup.sh.
+          # Deploying our own manifest forces Oryx to use the correct startup command.
+          printf 'NodeVersion = "22.x"\nStartupCommand = "node dist/index.js"\n' > deploy/oryx-manifest.toml
 
       - name: Azure Login
         uses: azure/login@v2
@@ -86,7 +90,7 @@ jobs:
             --name ${{ env.AZURE_APP_NAME }} \
             --src-path ./deploy.zip \
             --type zip \
-            --async false
+            --async true
 
       - name: Set Azure startup command
         run: |
@@ -94,3 +98,9 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --name ${{ env.AZURE_APP_NAME }} \
             --startup-file "node dist/index.js"
+
+      - name: Restart app
+        run: |
+          az webapp restart \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_APP_NAME }}
