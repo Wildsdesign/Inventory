@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
-import { Package, Truck, Upload, MapPin, LayoutDashboard, LogOut } from 'lucide-react';
+import { Package, PackageCheck, Truck, Upload, MapPin, LayoutDashboard, LogOut } from 'lucide-react';
 import { useAuth } from './contexts/auth-context';
 import { DashboardPage } from './pages/DashboardPage';
 import { ItemsPage } from './pages/ItemsPage';
@@ -57,6 +57,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="flex-1 p-3 space-y-1">
           <NavLink to="/" icon={LayoutDashboard}>Dashboard</NavLink>
           <NavLink to="/items" icon={Package}>Inventory</NavLink>
+          <NavLink to="/receiving" icon={PackageCheck}>Receiving</NavLink>
           <NavLink to="/vendors" icon={Truck}>Vendors</NavLink>
           <NavLink to="/import" icon={Upload}>Import</NavLink>
           <NavLink to="/storage-locations" icon={MapPin}>Storage</NavLink>
