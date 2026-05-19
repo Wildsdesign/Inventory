@@ -13,7 +13,9 @@
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
-    "demo:seed": "tsx prisma/demo-seed.ts"
+    "demo:seed": "tsx prisma/demo-seed.ts",
+    "archive:done": "tsx scripts/archive-done-issues.ts",
+    "archive:done:dry": "tsx scripts/archive-done-issues.ts --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
